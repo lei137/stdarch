@@ -71,12 +71,6 @@ mod sealed {
         unsafe fn vec_xxpermdi(self, b: Self, dm: u8) -> Self;
     }
 
-    #[unstable(feature = "stdarch_powerpc", issue = "111145")]
-    pub trait VectorAdd<Other> {
-        type Result;
-        unsafe fn vec_add(self, other: Other) -> Self::Result;
-    }
-
     // xxpermdi has an big-endian bias and extended mnemonics
     #[inline]
     #[target_feature(enable = "vsx")]
@@ -182,30 +176,20 @@ mod sealed {
     #[inline]
     #[target_feature(enable = "vsx")]
     #[cfg_attr(test, assert_instr(xvadddp))]
-    unsafe fn vec_add_double_double(a: vector_double, b: vector_double) -> vector_double {
+    pub(crate) unsafe fn vec_add_double_double(a: vector_double, b: vector_double) -> vector_double {
         simd_add(a, b)
-    }
-
-    #[unstable(feature = "stdarch_powerpc", issue = "111145")]
-    impl sealed::VectorAdd<vector_double> for vector_double {
-        type Result = vector_double;
-        #[inline]
-        #[target_feature(enable = "vsx")]
-        unsafe fn vec_add(self, other: vector_double) -> Self::Result {
-            vec_add_double_double(self, other)
-        }
     }
 }
 
-/// Vector add for double-precision floating-point vectors.
-#[inline]
-#[target_feature(enable = "vsx")]
+// Implement AltiVec's VectorAdd trait for vector_double to enable vec_add support
 #[unstable(feature = "stdarch_powerpc", issue = "111145")]
-pub unsafe fn vec_add<T, U>(a: T, b: U) -> <T as sealed::VectorAdd<U>>::Result
-where
-    T: sealed::VectorAdd<U>,
-{
-    a.vec_add(b)
+impl crate::core_arch::powerpc::altivec::sealed::VectorAdd<vector_double> for vector_double {
+    type Result = vector_double;
+    #[inline]
+    #[target_feature(enable = "vsx")]
+    unsafe fn vec_add(self, other: vector_double) -> Self::Result {
+        sealed::vec_add_double_double(self, other)
+    }
 }
 
 /// Vector permute.
