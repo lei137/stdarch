@@ -176,7 +176,10 @@ mod sealed {
     #[inline]
     #[target_feature(enable = "vsx")]
     #[cfg_attr(test, assert_instr(xvadddp))]
-    pub(crate) unsafe fn vec_add_double_double(a: vector_double, b: vector_double) -> vector_double {
+    pub(crate) unsafe fn vec_add_double_double(
+        a: vector_double,
+        b: vector_double,
+    ) -> vector_double {
         simd_add(a, b)
     }
 }
