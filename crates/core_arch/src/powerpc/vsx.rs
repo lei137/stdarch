@@ -11,7 +11,7 @@
 use crate::core_arch::powerpc::*;
 use crate::core_arch::simd::*;
 use super::macros::*;
-use crate::intrinsics::simd::{simd_add, simd_mul, simd_sub};
+use crate::intrinsics::simd::*;
 
 #[cfg(test)]
 use stdarch_test::assert_instr;
@@ -237,7 +237,66 @@ impl crate::core_arch::powerpc::altivec::sealed::VectorMul for vector_double {
     }
 }
 
-// Implement AltiVec's VectorSld trait for vector_double to enable vec_sld support
+// Macro to implement VectorCmpEq trait for vector types.
+macro_rules! impl_vec_cmpeq {
+    ($vec_ty:ident, $result_ty:ident, $mask_ty:ident, $instr:ident) => {
+        #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+        impl crate::core_arch::powerpc::altivec::sealed::VectorCmpEq<$vec_ty> for $vec_ty {
+            type Result = $result_ty;
+            #[inline]
+            #[target_feature(enable = "vsx")]
+            #[cfg_attr(test, assert_instr($instr))]
+            unsafe fn vec_cmpeq(self, b: $vec_ty) -> Self::Result {
+                let result: $mask_ty = simd_eq(self, b);
+                transmute(result)
+            }
+        }
+    };
+}
+impl_vec_cmpeq!(vector_float, vector_bool_int, m32x4, xvcmpeqsp);
+impl_vec_cmpeq!(vector_double, vector_bool_long, m64x2, xvcmpeqdp);
+
+// Macro to implement VectorCmpGt trait for vector types.
+macro_rules! impl_vec_cmpgt {
+    ($vec_ty:ident, $result_ty:ident, $mask_ty:ident, $instr:ident) => {
+        #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+        impl crate::core_arch::powerpc::altivec::sealed::VectorCmpGt<$vec_ty> for $vec_ty {
+            type Result = $result_ty;
+            #[inline]
+            #[target_feature(enable = "vsx")]
+            #[cfg_attr(test, assert_instr($instr))]
+            unsafe fn vec_cmpgt(self, b: $vec_ty) -> Self::Result {
+                let result: $mask_ty = simd_gt(self, b);
+                transmute(result)
+            }
+        }
+    };
+}
+impl_vec_cmpgt!(vector_float, vector_bool_int, m32x4, xvcmpgtsp);
+impl_vec_cmpgt!(vector_double, vector_bool_long, m64x2, xvcmpgtdp);
+
+// Macro to implement VectorCmpGe trait for vector types.
+macro_rules! impl_vec_cmpge {
+    ($vec_ty:ident, $result_ty:ident, $mask_ty:ident, $instr:ident) => {
+        #[cfg(target_feature = "vsx")]
+        #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+        impl crate::core_arch::powerpc::altivec::sealed::VectorCmpGe<$vec_ty> for $vec_ty {
+            type Result = $result_ty;
+            #[inline]
+            #[target_feature(enable = "vsx")]
+            #[cfg_attr(test, assert_instr($instr))]
+            unsafe fn vec_cmpge(self, b: $vec_ty) -> Self::Result {
+                let result: $mask_ty = simd_ge(self, b);
+                transmute(result)
+            }
+        }
+    };
+}
+
+impl_vec_cmpge!(vector_float, vector_bool_int, m32x4, xvcmpgesp);
+impl_vec_cmpge!(vector_double, vector_bool_long, m64x2, xvcmpgedp);
+
+// Implement AltiVec's VectorSld trait for vector_double to enable vec_sld support.
 use crate::core_arch::powerpc::altivec::sealed::{VectorSld, vsldoi, xxsldwi};
 impl_vec_sld! { vector_double }
 
@@ -373,6 +432,100 @@ mod tests {
             #[cfg(target_endian = "big")]
             let expected = f64x2::from_array([2.0, 3.0]);
             assert_eq!(result, expected);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_cmpeq_f32x4() {
+        let a = vector_float::from(f32x4::from_array([1.0, 2.0, 3.0, 4.0]));
+        let b = vector_float::from(f32x4::from_array([1.0, 3.0, 3.0, 5.0]));
+
+        unsafe {
+            let result: vector_bool_int = vec_cmpeq(a, b);
+            // Elements 0 and 2 are equal, elements 1 and 3 are not equal.
+            // Equal elements should have all bits set (-1), non-equal should be 0.
+            let result_i32: i32x4 = transmute(result);
+            assert_eq!(result_i32.as_array()[0], -1i32);
+            assert_eq!(result_i32.as_array()[1], 0i32);
+            assert_eq!(result_i32.as_array()[2], -1i32);
+            assert_eq!(result_i32.as_array()[3], 0i32);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_cmpeq_f64x2() {
+        let a = vector_double::from(f64x2::from_array([1.0, 2.0]));
+        let b = vector_double::from(f64x2::from_array([1.0, 3.0]));
+
+        unsafe {
+            let result: vector_bool_long = vec_cmpeq(a, b);
+            // First element equal (1.0 == 1.0), second not equal (2.0 != 3.0).
+            // Equal elements should have all bits set (-1), non-equal should be 0.
+            let result_i64: i64x2 = transmute(result);
+            assert_eq!(result_i64.as_array()[0], -1i64);
+            assert_eq!(result_i64.as_array()[1], 0i64);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_cmpgt_f32x4() {
+        let a = vector_float::from(f32x4::from_array([1.0, 2.0, 3.0, 4.0]));
+        let b = vector_float::from(f32x4::from_array([0.0, 3.0, 3.0, 5.0]));
+
+        unsafe {
+            let result: vector_bool_int = vec_cmpgt(a, b);
+            // Element 0: 1.0 > 0.0 (true), Element 1: 2.0 > 3.0 (false)
+            // Element 2: 3.0 > 3.0 (false), Element 3: 4.0 > 5.0 (false)
+            let result_i32: i32x4 = transmute(result);
+            assert_eq!(result_i32.as_array()[0], -1i32);
+            assert_eq!(result_i32.as_array()[1], 0i32);
+            assert_eq!(result_i32.as_array()[2], 0i32);
+            assert_eq!(result_i32.as_array()[3], 0i32);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_cmpgt_f64x2() {
+        let a = vector_double::from(f64x2::from_array([2.0, 1.0]));
+        let b = vector_double::from(f64x2::from_array([1.0, 3.0]));
+
+        unsafe {
+            let result: vector_bool_long = vec_cmpgt(a, b);
+            // First element: 2.0 > 1.0 (true), second: 1.0 > 3.0 (false)
+            let result_i64: i64x2 = transmute(result);
+            assert_eq!(result_i64.as_array()[0], -1i64);
+            assert_eq!(result_i64.as_array()[1], 0i64);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_cmpge_f32x4() {
+        let a = vector_float::from(f32x4::from_array([1.0, 2.0, 3.0, 4.0]));
+        let b = vector_float::from(f32x4::from_array([0.0, 3.0, 3.0, 5.0]));
+
+        unsafe {
+            let result: vector_bool_int = vec_cmpge(a, b);
+            // Element 0: 1.0 >= 0.0 (true), Element 1: 2.0 >= 3.0 (false)
+            // Element 2: 3.0 >= 3.0 (true), Element 3: 4.0 >= 5.0 (false)
+            let result_i32: i32x4 = transmute(result);
+            assert_eq!(result_i32.as_array()[0], -1i32);
+            assert_eq!(result_i32.as_array()[1], 0i32);
+            assert_eq!(result_i32.as_array()[2], -1i32);
+            assert_eq!(result_i32.as_array()[3], 0i32);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_cmpge_f64x2() {
+        let a = vector_double::from(f64x2::from_array([2.0, 3.0]));
+        let b = vector_double::from(f64x2::from_array([1.0, 3.0]));
+
+        unsafe {
+            let result: vector_bool_long = vec_cmpge(a, b);
+            // First element: 2.0 >= 1.0 (true), second: 3.0 >= 3.0 (true)
+            let result_i64: i64x2 = transmute(result);
+            assert_eq!(result_i64.as_array()[0], -1i64);
+            assert_eq!(result_i64.as_array()[1], -1i64);
         }
     }
 }
