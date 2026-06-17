@@ -10,6 +10,7 @@
 
 use crate::core_arch::powerpc::*;
 use crate::core_arch::simd::*;
+use super::macros::*;
 use crate::intrinsics::simd::{simd_add, simd_mul, simd_sub};
 
 #[cfg(test)]
@@ -236,6 +237,10 @@ impl crate::core_arch::powerpc::altivec::sealed::VectorMul for vector_double {
     }
 }
 
+// Implement AltiVec's VectorSld trait for vector_double to enable vec_sld support
+use crate::core_arch::powerpc::altivec::sealed::{VectorSld, vsldoi, xxsldwi};
+impl_vec_sld! { vector_double }
+
 /// Vector permute.
 #[inline]
 #[target_feature(enable = "vsx")]
@@ -348,6 +353,26 @@ mod tests {
 
         unsafe {
             assert_eq!(f64x2::from(vec_mul(a, b)), f64x2::from(expected));
+        }
+    }
+
+    #[simd_test(enable = "altivec")]
+    fn test_vec_sld_f64x2() {
+        use crate::core_arch::powerpc::altivec::sealed::VectorSld;
+
+        let a = vector_double::from(f64x2::from_array([1.0, 2.0]));
+        let b = vector_double::from(f64x2::from_array([3.0, 4.0]));
+
+        // Shift left by 8 bytes (1 f64 element)
+        // On little-endian: shifts right in memory, result is [b[1], a[0]] = [4.0, 1.0]
+        // On big-endian: shifts left in memory, result is [a[1], b[0]] = [2.0, 3.0]
+        unsafe {
+            let result: f64x2 = transmute(a.vec_sld::<8>(b));
+            #[cfg(target_endian = "little")]
+            let expected = f64x2::from_array([4.0, 1.0]);
+            #[cfg(target_endian = "big")]
+            let expected = f64x2::from_array([2.0, 3.0]);
+            assert_eq!(result, expected);
         }
     }
 }
