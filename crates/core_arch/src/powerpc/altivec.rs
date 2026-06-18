@@ -411,7 +411,7 @@ unsafe extern "unadjusted" {
 }
 
 #[macro_use]
-mod sealed {
+pub(crate) mod sealed {
     use super::*;
 
     #[unstable(feature = "stdarch_powerpc", issue = "111145")]
@@ -1927,16 +1927,48 @@ mod sealed {
 
     #[inline]
     #[target_feature(enable = "altivec")]
-    #[cfg_attr(test, assert_instr(xvnmsubasp))]
+    #[cfg_attr(all(test, target_feature = "vsx"), assert_instr(xvnmsubasp))]
+    #[cfg_attr(all(test, not(target_feature = "vsx")), assert_instr(vnmsubfp))]
     pub unsafe fn vec_vnmsubfp(a: vector_float, b: vector_float, c: vector_float) -> vector_float {
         simd_neg(simd_fma(a, b, simd_neg(c)))
     }
 
     #[inline]
     #[target_feature(enable = "altivec")]
-    #[cfg_attr(test, assert_instr(xvmaddasp))]
+    #[cfg_attr(all(test, target_feature = "vsx"), assert_instr(xvmaddasp))]
+    #[cfg_attr(all(test, not(target_feature = "vsx")), assert_instr(vmaddfp))]
     pub unsafe fn vec_vmaddfp(a: vector_float, b: vector_float, c: vector_float) -> vector_float {
         simd_fma(a, b, c)
+    }
+
+    #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+    pub trait VectorMadd {
+        #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+        unsafe fn vec_madd(self, b: Self, c: Self) -> Self;
+    }
+
+    #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+    pub trait VectorNmsub {
+        #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+        unsafe fn vec_nmsub(self, b: Self, c: Self) -> Self;
+    }
+
+    #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+    impl VectorMadd for vector_float {
+        #[inline]
+        #[target_feature(enable = "altivec")]
+        unsafe fn vec_madd(self, b: Self, c: Self) -> Self {
+            vec_vmaddfp(self, b, c)
+        }
+    }
+
+    #[unstable(feature = "stdarch_powerpc", issue = "111145")]
+    impl VectorNmsub for vector_float {
+        #[inline]
+        #[target_feature(enable = "altivec")]
+        unsafe fn vec_nmsub(self, b: Self, c: Self) -> Self {
+            vec_vnmsubfp(self, b, c)
+        }
     }
 
     #[inline]
@@ -4318,16 +4350,22 @@ where
 #[inline]
 #[target_feature(enable = "altivec")]
 #[unstable(feature = "stdarch_powerpc", issue = "111145")]
-pub unsafe fn vec_madd(a: vector_float, b: vector_float, c: vector_float) -> vector_float {
-    sealed::vec_vmaddfp(a, b, c)
+pub unsafe fn vec_madd<T>(a: T, b: T, c: T) -> T
+where
+    T: sealed::VectorMadd,
+{
+    a.vec_madd(b, c)
 }
 
 /// Vector Negative Multiply Subtract
 #[inline]
 #[target_feature(enable = "altivec")]
 #[unstable(feature = "stdarch_powerpc", issue = "111145")]
-pub unsafe fn vec_nmsub(a: vector_float, b: vector_float, c: vector_float) -> vector_float {
-    sealed::vec_vnmsubfp(a, b, c)
+pub unsafe fn vec_nmsub<T>(a: T, b: T, c: T) -> T
+where
+    T: sealed::VectorNmsub,
+{
+    a.vec_nmsub(b, c)
 }
 
 /// Vector Select
