@@ -16,7 +16,7 @@ use crate::intrinsics::simd::*;
 #[cfg(test)]
 use stdarch_test::assert_instr;
 
-use crate::mem::transmute;
+use crate::mem::{self, transmute};
 
 types! {
     #![unstable(feature = "stdarch_powerpc", issue = "111145")]
@@ -62,6 +62,11 @@ unsafe extern "unadjusted" {
         c: vector_unsigned_char,
     ) -> vector_signed_int;
 }
+
+// Implement vec_xl for f64 (vector_double) - VSX extension
+// Use the impl_vec_xl macro from macros module
+use crate::core_arch::powerpc::altivec::sealed::VectorXl;
+impl_vec_xl! { vec_xl_f64 lxvd2x / lxv f64 }
 
 mod sealed {
     use super::*;
@@ -526,6 +531,35 @@ mod tests {
             let result_i64: i64x2 = transmute(result);
             assert_eq!(result_i64.as_array()[0], -1i64);
             assert_eq!(result_i64.as_array()[1], -1i64);
+        }
+    }
+
+    #[simd_test(enable = "vsx")]
+    fn test_vec_xl_f64() {
+        let pat = [1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+
+        // Test loading from aligned offset 0
+        unsafe {
+            let result = vec_xl(0, pat.as_ptr());
+            let result_f64: f64x2 = transmute(result);
+            assert_eq!(result_f64.as_array()[0], 1.0);
+            assert_eq!(result_f64.as_array()[1], 2.0);
+        }
+
+        // Test loading from offset 16 (2 f64 elements = 16 bytes)
+        unsafe {
+            let result = vec_xl(16, pat.as_ptr());
+            let result_f64: f64x2 = transmute(result);
+            assert_eq!(result_f64.as_array()[0], 3.0);
+            assert_eq!(result_f64.as_array()[1], 4.0);
+        }
+
+        // Test loading from offset 32 (4 f64 elements = 32 bytes)
+        unsafe {
+            let result = vec_xl(32, pat.as_ptr());
+            let result_f64: f64x2 = transmute(result);
+            assert_eq!(result_f64.as_array()[0], 5.0);
+            assert_eq!(result_f64.as_array()[1], 6.0);
         }
     }
 }
